@@ -1,0 +1,15 @@
+streamlit>=1.38
+ollama>=0.3.0
+pdfplumber>=0.11
+python-docx>=1.1
+reportlab>=4.0
+requests>=2.32
+python-dotenv>=1.0
+
+# Optional -- only needed if you set AI_PROVIDER=anthropic in .env instead of
+# the default fully-local Ollama backend. Uncomment to install:
+# anthropic>=0.34
+
+# Optional -- required for Auto-Apply automation (Tab 5).
+# After installing, also run: playwright install chromium
+# playwright>=1.40
