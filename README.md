@@ -1,9 +1,9 @@
 # ⚡ GameHire
 
-**AI-Powered Job Search Copilot** — Resume optimizer, ATS scorer, cover letter writer, interview coach, and auto-apply automation. Runs 100% locally by default via Ollama — nothing leaves your machine.
+**AI-Powered Job Search Copilot** — Resume optimizer, ATS scorer, cover letter writer, interview coach, and auto-apply automation. Your resume and AI processing stay on your machine by default via Ollama. Job search and auto-apply need an internet connection.
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://python.org)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.38+-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.38--1.48-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20AI-black?logo=ollama)](https://ollama.ai)
 [![Playwright](https://img.shields.io/badge/Playwright-Auto--Apply-45ba4b?logo=playwright)](https://playwright.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -30,7 +30,7 @@ GameHire is a locally-running, privacy-first AI assistant for every stage of you
 | 💬 **LinkedIn Outreach** | 300-char connection note + full InMail message |
 | 🔍 **Job Search** | Searches Remotive, Adzuna, Arbeitnow, Jooble simultaneously |
 | 🤖 **Auto-Apply** | LinkedIn Easy Apply, Indeed Quick Apply, Greenhouse, Lever automation |
-| 🎙️ **Interview Prep** | Generates 8 role-specific questions + STAR coaching feedback |
+| 🎙️ **Interview Prep** | Generates 10 role-specific questions + STAR coaching feedback |
 | 📊 **Tracker** | Local SQLite pipeline: Saved → Applied → Interviewing → Offer |
 
 ---
@@ -49,7 +49,7 @@ GameHire is a locally-running, privacy-first AI assistant for every stage of you
      │  ai.py       │  ats.py       │  jobs.py             │
      │  • Ollama    │  • Rule-based │  • Remotive API      │
      │  • Anthropic │    scoring    │  • Adzuna API        │
-     │  • 8 AI fns  │  • Keyword    │  • Arbeitnow API     │
+     │  • 10 AI fns  │  • Keyword    │  • Arbeitnow API     │
      │              │    matcher    │  • Jooble API        │
      ├──────────────┼───────────────┼──────────────────────┤
      │  applier.py  │  tracker.py   │  parser.py           │
@@ -92,7 +92,10 @@ pip install -r requirements.txt
 ### 2. Configure `.env`
 
 ```bash
+# macOS / Linux
 cp .env.example .env
+# Windows (cmd)
+copy .env.example .env
 ```
 
 Open `.env` and fill in your values (see [Configuration](#-configuration) below).
@@ -102,7 +105,7 @@ Open `.env` and fill in your values (see [Configuration](#-configuration) below)
 ```bash
 # Install Ollama from https://ollama.ai, then:
 ollama serve
-ollama pull qwen2.5:7b   # recommended starting model if you have 8-16 GB of Ram
+ollama pull qwen2.5:7b   # recommended starting model if you have 8-16 GB of RAM
 ```
 
 ### 4. Run GameHire
@@ -119,14 +122,11 @@ Open **http://localhost:8501** in your browser. 🎉
 
 Auto-apply uses Playwright to automate LinkedIn Easy Apply, Indeed Quick Apply, Greenhouse, and Lever forms.
 
-IMPORTANT:
-  * This only works with jobs that have "Easy Apply" / "Quick Apply" features.
-    It does NOT bypass login walls you must provide credentials in .env.
-  * Automating LinkedIn/Indeed logins and submissions may violate their Terms
-    of Service and can get your account restricted. Use at your own risk.
-  * Required questions it can't answer are NOT guessed the run stops and
-    the job is saved to your tracker for manual completion.
-  * A job only counts as "applied" if a confirmation message is detected.
+> ⚠️ **Important**
+> - Only works with jobs that offer "Easy Apply" / "Quick Apply". It does **not** bypass login walls, so you must provide credentials in `.env`.
+> - Automating LinkedIn/Indeed logins and submissions may violate their Terms of Service and can get your account restricted. **Use at your own risk.**
+> - Required questions it can't answer are **not guessed**: the run stops and the job is saved to your tracker for manual completion.
+> - A job only counts as "applied" if a confirmation message is detected.
 
 ```bash
 pip install playwright
@@ -159,12 +159,14 @@ To preserve your exact Overleaf design when improving your resume:
 3. GameHire edits only the prose (bullets, summary) — never the LaTeX commands
 4. Download the compiled `.pdf` or paste the `.tex` back into Overleaf
 
-For local PDF compilation, install TinyTeX:
+For local PDF compilation, install TinyTeX (it provides `pdflatex`, which must be on your PATH):
 
 ```bash
 # Windows (run as Administrator)
 install-tinytex.bat
 ```
+
+macOS / Linux: see [yihui.org/tinytex](https://yihui.org/tinytex/).
 
 ---
 
@@ -242,7 +244,7 @@ gamehire-ai/
 | Platform | Method | Notes |
 |---|---|---|
 | LinkedIn | Easy Apply modal | Multi-step, handles file upload |
-| Indeed | Quick Apply | Session-based login |
+| Indeed | Quick Apply | Logs in each run; CAPTCHA or email-code prompts stop the run |
 | Greenhouse | Direct form | File upload + text fields |
 | Lever | Direct form | File upload + text fields |
 | Generic | Best-effort | Name/email/phone/resume auto-fill |
@@ -254,7 +256,7 @@ gamehire-ai/
 ## 📦 Dependencies
 
 ```
-streamlit>=1.38       # UI framework
+streamlit>=1.38,<1.49   # UI framework
 ollama>=0.3.0         # Local AI (Ollama client)
 pdfplumber>=0.11      # PDF text extraction
 python-docx>=1.1      # DOCX read/write
