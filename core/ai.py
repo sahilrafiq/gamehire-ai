@@ -15,45 +15,85 @@ import json
 import os
 import re
 
-PROVIDER = os.getenv("AI_PROVIDER", "ollama").lower()
+try:  # make sure .env is loaded even if this module is imported before app.py calls load_dotenv()
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-# Local (Ollama) settings
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
-# Cloud (Anthropic) settings -- swap for "claude-opus-5" (higher quality,
-# slower/pricier) or "claude-haiku-4-5-20251001" (fastest/cheapest).
-ANTHROPIC_MODEL = "claude-sonnet-5"
+# Settings are read at call time (not import time) so .env changes are always honoured.
+def _provider() -> str:
+    return os.getenv("AI_PROVIDER", "ollama").strip().lower()
+
+
+def _ollama_model() -> str:
+    return os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+
+
+def _ollama_host() -> str:
+    return os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+
+def _anthropic_model() -> str:
+    # Override with ANTHROPIC_MODEL in .env (e.g. a cheaper/faster or higher-quality Claude model).
+    return os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
 
 
 def _ask(system: str, user: str, max_tokens: int = 2000) -> str:
-    if PROVIDER == "anthropic":
+    provider = _provider()
+    if provider == "anthropic":
         return _ask_anthropic(system, user, max_tokens)
-    if PROVIDER == "ollama":
+    if provider == "ollama":
         return _ask_ollama(system, user, max_tokens)
-    raise RuntimeError(f"Unknown AI_PROVIDER '{PROVIDER}'. Use 'ollama' or 'anthropic'.")
+    raise RuntimeError(f"Unknown AI_PROVIDER '{provider}'. Use 'ollama' or 'anthropic'.")
+
+
+def _extract_json(raw: str):
+    """Parse JSON from a model reply, tolerating code fences and surrounding prose."""
+    raw = (raw or "").strip()
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    # Try the outermost structure first: whichever of "[" / "{" appears earliest.
+    pairs = sorted((("[", "]"), ("{", "}")),
+                   key=lambda p: raw.find(p[0]) if p[0] in raw else len(raw) + 1)
+    for open_c, close_c in pairs:
+        i, j = raw.find(open_c), raw.rfind(close_c)
+        if i != -1 and j > i:
+            try:
+                return json.loads(raw[i:j + 1])
+            except json.JSONDecodeError:
+                continue
+    raise ValueError("no valid JSON found in model output")
 
 
 def _ask_ollama(system: str, user: str, max_tokens: int) -> str:
     import ollama  # imported lazily so this dependency is optional if you only use Anthropic
 
-    client = ollama.Client(host=OLLAMA_HOST)
+    host, model = _ollama_host(), _ollama_model()
+    client = ollama.Client(host=host)
     try:
         response = client.chat(
-            model=OLLAMA_MODEL,
+            model=model,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            options={"num_predict": max_tokens},
+            # Ollama's default context window is small and silently truncates long
+            # resume + job-description prompts, so request a bigger one.
+            options={"num_predict": max_tokens,
+                     "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "8192"))},
         )
     except Exception as e:
         raise RuntimeError(
-            f"Couldn't reach Ollama at {OLLAMA_HOST} with model '{OLLAMA_MODEL}'. "
+            f"Couldn't reach Ollama at {host} with model '{model}'. "
             f"Checklist: (1) is Ollama running? try `ollama serve`. "
-            f"(2) is the model pulled? try `ollama pull {OLLAMA_MODEL}`. "
+            f"(2) is the model pulled? try `ollama pull {model}`. "
             f"Original error: {e}"
-        )
+        ) from e
     return response["message"]["content"]
 
 
@@ -68,7 +108,7 @@ def _ask_anthropic(system: str, user: str, max_tokens: int) -> str:
         )
     client = Anthropic(api_key=api_key)
     response = client.messages.create(
-        model=ANTHROPIC_MODEL,
+        model=_anthropic_model(),
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": user}],
@@ -81,7 +121,8 @@ _STRUCTURE_RULES = (
     "sections, in the same order, with roughly the same amount of content per "
     "section -- do not invent new sections, drop sections, or reorder them. "
     "Your job is to improve the writing and keyword strength, not redesign "
-    "the document. Quantify impact wherever plausible, use strong action "
+    "the document. Quantify impact ONLY with figures already present in the "
+    "original resume; never invent numbers. Use strong action "
     "verbs, remove filler and cliches, avoid first-person pronouns (I, my, "
     "me). Never fabricate skills, employers, dates, or credentials that "
     "aren't in the original resume. Keep section headers on their own line, "
@@ -91,10 +132,10 @@ _STRUCTURE_RULES = (
 
 _ADVANCED_RESUME_RULES = (
     "ADVANCED RESUME OPTIMIZATION RULES:\n"
-    "1. IMPACT QUANTIFICATION: Transform vague statements into measurable achievements. "
-    "   E.g., 'managed team' → 'Led cross-functional team of 8 engineers, delivering 3 "
-    "   product launches 2 weeks ahead of schedule'. Use specific numbers, percentages, "
-    "   dollar amounts, and timeframes whenever the original implies scale or results.\n"
+    "1. IMPACT QUANTIFICATION: Make vague statements more concrete and result-oriented. "
+    "   Use numbers, percentages, dollar amounts and timeframes ONLY if they appear in the "
+    "   original resume. Where impact is implied but no figure is given, insert a bracketed "
+    "   placeholder such as [X%] or [N users] for the candidate to fill in. NEVER invent figures.\n"
     "2. POWER VERBS: Use tier-1 action verbs: Spearheaded, Architected, Orchestrated, "
     "   Pioneered, Accelerated, Drove, Transformed, Scaled, Optimized, Engineered, "
     "   Championed, Delivered, Exceeded, Streamlined.\n"
@@ -190,7 +231,7 @@ def improve_latex_segments(segments: list, job_description: str = "", target_key
         '{"id": ..., "text": ...} objects -- each is one bullet point or '
         "summary paragraph from a resume. Rewrite each 'text' value using these rules:\n"
         "1. Use powerful action verbs (Spearheaded, Architected, Drove, Delivered)\n"
-        "2. Quantify impact with specific numbers, %, $, timeframes wherever implied\n"
+        "2. Use numbers only if present in the original text; otherwise use a placeholder like [X%]. Never invent figures\n"
         "3. Use PAR/CAR format (Problem/Action/Result or Challenge/Action/Result)\n"
         "4. Keep each bullet concise (1-2 lines max)\n"
         "5. Mirror target job keywords naturally\n"
@@ -202,13 +243,14 @@ def improve_latex_segments(segments: list, job_description: str = "", target_key
     )
     user = f"{target_line}\nFRAGMENTS:\n{json.dumps(segments, indent=2)}"
     raw = _ask(system, user, max_tokens=4000).strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\n?|\n?```$", "", raw)
     try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as e:
+        parsed = _extract_json(raw)
+    except ValueError as e:
         raise RuntimeError(f"AI didn't return valid JSON: {e}\nRaw output:\n{raw[:500]}")
-    return {item["id"]: item["text"] for item in parsed}
+    if isinstance(parsed, dict):  # some models wrap the list, e.g. {"fragments": [...]}
+        parsed = next((v for v in parsed.values() if isinstance(v, list)), [])
+    return {str(item["id"]): item["text"] for item in parsed
+            if isinstance(item, dict) and "id" in item and isinstance(item.get("text"), str)}
 
 
 def improve_latex(tex_source: str, job_description: str = "", target_keywords: str = "") -> str:
@@ -398,11 +440,29 @@ def score_job_fit(resume_text: str, job_description: str) -> dict:
         '"reasoning": "2-3 sentence explanation"}'
     )
     raw = _ask(system, user, max_tokens=600).strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\n?|\n?```$", "", raw)
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
+        data = _extract_json(raw)
+        if not isinstance(data, dict):
+            raise ValueError("expected a JSON object")
+
+        def _num(key):
+            try:
+                return max(0, min(100, int(float(data.get(key, 0)))))
+            except (TypeError, ValueError):
+                return 0
+
+        return {
+            "overall_score": _num("overall_score"),
+            "skills_match": _num("skills_match"),
+            "experience_match": _num("experience_match"),
+            "education_match": _num("education_match"),
+            "culture_fit": _num("culture_fit"),
+            "strengths": [str(x) for x in data.get("strengths", [])] if isinstance(data.get("strengths"), list) else [],
+            "gaps": [str(x) for x in data.get("gaps", [])] if isinstance(data.get("gaps"), list) else [],
+            "recommendation": str(data.get("recommendation", "")),
+            "reasoning": str(data.get("reasoning", "")),
+        }
+    except ValueError:
         return {
             "overall_score": 0,
             "skills_match": 0,

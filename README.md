@@ -75,8 +75,8 @@ GameHire is a locally-running, privacy-first AI assistant for every stage of you
 ### 1. Clone & set up environment
 
 ```bash
-git clone https://github.com/sahilrafiq/gamehire.git
-cd gamehire
+git clone https://github.com/sahilrafiq/gamehire-ai.git
+cd gamehire-ai
 
 python -m venv venv
 
@@ -102,7 +102,7 @@ Open `.env` and fill in your values (see [Configuration](#-configuration) below)
 ```bash
 # Install Ollama from https://ollama.ai, then:
 ollama serve
-ollama pull qwen2.5:7b   # recommended starting model
+ollama pull qwen2.5:7b   # recommended starting model if you have 8-16 GB of Ram
 ```
 
 ### 4. Run GameHire
@@ -118,6 +118,15 @@ Open **http://localhost:8501** in your browser. 🎉
 ## 🤖 Auto-Apply Setup (Optional)
 
 Auto-apply uses Playwright to automate LinkedIn Easy Apply, Indeed Quick Apply, Greenhouse, and Lever forms.
+
+IMPORTANT:
+  * This only works with jobs that have "Easy Apply" / "Quick Apply" features.
+    It does NOT bypass login walls you must provide credentials in .env.
+  * Automating LinkedIn/Indeed logins and submissions may violate their Terms
+    of Service and can get your account restricted. Use at your own risk.
+  * Required questions it can't answer are NOT guessed the run stops and
+    the job is saved to your tracker for manual completion.
+  * A job only counts as "applied" if a confirmation message is detected.
 
 ```bash
 pip install playwright
@@ -169,6 +178,9 @@ All settings live in `.env`. Copy from `.env.example`:
 | `OLLAMA_MODEL` | `qwen2.5:7b` | Any model you've pulled with `ollama pull` |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server address |
 | `ANTHROPIC_API_KEY` | — | Get at [console.anthropic.com](https://console.anthropic.com) |
+| `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | Claude model used when `AI_PROVIDER=anthropic` (requires `pip install anthropic`) |
+| `OLLAMA_NUM_CTX` | `8192` | Ollama context window; raise for very long resumes/job descriptions |
+| `ADZUNA_COUNTRY` | `us` | Country code for Adzuna job search (`us`, `gb`, `in`, `ca`, ...) |
 | `ADZUNA_APP_ID` | — | Free at [developer.adzuna.com](https://developer.adzuna.com) |
 | `ADZUNA_APP_KEY` | — | Same Adzuna registration |
 | `JOOBLE_API_KEY` | — | Free at [jooble.org/api/about](https://jooble.org/api/about) |
@@ -195,7 +207,7 @@ All settings live in `.env`. Copy from `.env.example`:
 ## 🗂️ Project Structure
 
 ```
-gamehire/
+gamehire-ai/
 ├── app.py                  # Streamlit UI — all 7 tabs
 ├── core/
 │   ├── ai.py               # AI backend (Ollama / Anthropic)
@@ -205,8 +217,7 @@ gamehire/
 │   ├── tracker.py          # SQLite application tracker
 │   ├── parser.py           # Resume parsing (PDF/DOCX/TXT)
 │   ├── latex_editor.py     # LaTeX segment editor
-│   ├── latex_generator.py  # Resume → LaTeX converter
-│   └── latex_template.py   # Base LaTeX template
+│   └── latex_generator.py  # Resume → LaTeX converter
 ├── applications.db         # Local SQLite DB (auto-created)
 ├── requirements.txt
 ├── .env.example

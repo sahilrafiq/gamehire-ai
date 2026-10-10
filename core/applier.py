@@ -8,9 +8,14 @@ Supported platforms:
   - Indeed Quick Apply (via Playwright)
   - Direct URL form detection & submission
 
-IMPORTANT: This only works with jobs that have "Easy Apply" / "Quick Apply"
-features. It does NOT bypass login walls — you must provide credentials in .env.
-All automation is done in a way that respects rate limits.
+IMPORTANT:
+  * This only works with jobs that have "Easy Apply" / "Quick Apply" features.
+    It does NOT bypass login walls -- you must provide credentials in .env.
+  * Automating LinkedIn/Indeed logins and submissions may violate their Terms
+    of Service and can get your account restricted. Use at your own risk.
+  * Required questions it can't answer are NOT guessed -- the run stops and
+    the job is saved to your tracker for manual completion.
+  * A job only counts as "applied" if a confirmation message is detected.
 
 Setup:
   pip install playwright
@@ -64,6 +69,59 @@ def _is_playwright_available() -> bool:
         return False
 
 
+_CONFIRM_PHRASES = (
+    "thank you for applying", "thanks for applying", "application submitted",
+    "application has been submitted", "application received", "received your application",
+    "successfully submitted", "application was sent", "application sent",
+    "your application has been", "we have received your application",
+)
+
+
+def _wait_for_confirmation(page, timeout_s: float = 8.0) -> bool:
+    """True only if the page shows a submission-confirmation message."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            body = (page.inner_text("body") or "").lower()
+        except Exception:
+            body = ""
+        if any(p in body for p in _CONFIRM_PHRASES):
+            return True
+        time.sleep(1)
+    return False
+
+
+def _unverified(url, company, role, platform) -> "ApplyResult":
+    return ApplyResult(
+        job_url=url, company=company, role=role, success=False, platform=platform,
+        message="Submit was clicked but no confirmation message was detected -- "
+                "check the site manually before assuming it went through.",
+    )
+
+
+def _has_file_input(page) -> bool:
+    # File inputs are usually visually hidden, so is_visible() would wrongly say no.
+    return page.locator("input[type='file']").count() > 0
+
+
+def _record_result(job_url: str, company: str, role: str, result: "ApplyResult") -> None:
+    """Keep the tracker in sync: Applied on verified success, otherwise Saved
+    for manual follow-up (the UI promises this)."""
+    try:
+        existing = next((a for a in tracker.list_applications() if a["url"] == job_url), None)
+        if result.success:
+            if existing:
+                tracker.update_status(existing["id"], "Applied")
+            else:
+                tracker.add_application(company, role, job_url, status="Applied",
+                                        auto_applied=True, platform=result.platform)
+        elif not existing:
+            tracker.add_application(company, role, job_url, status="Saved",
+                                    notes=result.message[:200], platform=result.platform)
+    except Exception:
+        logger.exception("Could not update tracker")
+
+
 def _detect_platform(url: str) -> str:
     """Detect which job board the URL belongs to."""
     url_lower = url.lower()
@@ -98,6 +156,12 @@ def apply_to_job(
             success=False,
             message="Playwright is not installed. Run: pip install playwright && playwright install chromium",
             platform="none"
+        )
+
+    if not job_url or not job_url.lower().startswith(("http://", "https://")):
+        return ApplyResult(
+            job_url=job_url or "", company=company, role=role, success=False,
+            message="Missing or invalid job URL.", platform="none",
         )
 
     platform = _detect_platform(job_url)
@@ -137,14 +201,7 @@ def apply_to_job(
                 else:
                     result = _apply_generic(page, job_url, company, role, config, log)
 
-                if result.success:
-                    # Update tracker status to "Applied"
-                    apps = tracker.list_applications()
-                    for app in apps:
-                        if app["url"] == job_url:
-                            tracker.update_status(app["id"], "Applied")
-                            break
-
+                _record_result(job_url, company, role, result)
                 return result
 
             except PlaywrightTimeout as e:
@@ -169,6 +226,12 @@ def apply_to_job(
 def _apply_linkedin(page, url: str, company: str, role: str, config: ApplyConfig, log) -> ApplyResult:
     """LinkedIn Easy Apply flow."""
     from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    if not config.linkedin_email or not config.linkedin_password:
+        return ApplyResult(
+            job_url=url, company=company, role=role, success=False, platform="linkedin",
+            message="LinkedIn email/password not set (Auto-Apply tab or .env).",
+        )
 
     log("🔐 Logging into LinkedIn...")
 
@@ -224,13 +287,14 @@ def _apply_linkedin(page, url: str, company: str, role: str, config: ApplyConfig
         if submit_btn.is_visible():
             log("📤 Submitting application...")
             submit_btn.click()
-            time.sleep(2)
-            return ApplyResult(
-                job_url=url, company=company, role=role,
-                success=True,
-                message="✅ Successfully submitted via LinkedIn Easy Apply!",
-                platform="linkedin",
-            )
+            if _wait_for_confirmation(page):
+                return ApplyResult(
+                    job_url=url, company=company, role=role,
+                    success=True,
+                    message="✅ Successfully submitted via LinkedIn Easy Apply!",
+                    platform="linkedin",
+                )
+            return _unverified(url, company, role, "linkedin")
 
         if review_btn.is_visible():
             log("📋 Reviewing application...")
@@ -245,6 +309,13 @@ def _apply_linkedin(page, url: str, company: str, role: str, config: ApplyConfig
             log(f"➡️ Moving to step {steps_completed + 2}...")
             next_btn.click()
             time.sleep(1.5)
+            # If LinkedIn flags unanswered required questions, stop -- never guess answers.
+            if page.locator(".artdeco-inline-feedback--error:visible").count() > 0:
+                return ApplyResult(
+                    job_url=url, company=company, role=role, success=False, platform="linkedin",
+                    message="This application has required questions that can't be auto-filled. "
+                            "Please complete it manually.",
+                )
             steps_completed += 1
         else:
             # No navigation buttons found
@@ -269,10 +340,8 @@ def _fill_linkedin_form_fields(page, config: ApplyConfig):
                 phone_field.fill(phone)
 
         # Upload resume if file input exists
-        if config.resume_path and Path(config.resume_path).exists():
-            resume_input = page.locator("input[type='file']").first
-            if resume_input.is_visible():
-                resume_input.set_input_files(config.resume_path)
+        if config.resume_path and Path(config.resume_path).exists() and _has_file_input(page):
+            page.locator("input[type='file']").first.set_input_files(config.resume_path)
 
         # Cover letter / additional info textareas
         if config.cover_letter_text:
@@ -284,10 +353,8 @@ def _fill_linkedin_form_fields(page, config: ApplyConfig):
                         ta.fill(config.cover_letter_text[:2000])
                         break
 
-        # Handle Yes/No radio buttons (default to "Yes" for generic questions)
-        radio_yes = page.locator("label:has-text('Yes')").first
-        if radio_yes.is_visible():
-            radio_yes.click()
+        # NOTE: Yes/No questions (work authorization, sponsorship, ...) are deliberately
+        # NOT auto-answered -- answering them blindly could submit false statements.
 
     except Exception:
         pass  # Best-effort field filling
@@ -306,7 +373,7 @@ def _apply_indeed(page, url: str, company: str, role: str, config: ApplyConfig, 
         time.sleep(1)
         page.fill("input[type='password']", config.indeed_password)
         page.click("button[type='submit']")
-        page.wait_for_url("**/*/", timeout=15000)
+        page.wait_for_url(lambda u: "secure.indeed.com/auth" not in u, timeout=20000)
         log("✅ Indeed login successful")
     except Exception as e:
         return ApplyResult(
@@ -336,24 +403,23 @@ def _apply_indeed(page, url: str, company: str, role: str, config: ApplyConfig, 
     # Step through the application
     for _ in range(8):
         # Upload resume if prompted
-        file_inputs = page.locator("input[type='file']").all()
-        for fi in file_inputs:
-            if fi.is_visible() and config.resume_path and Path(config.resume_path).exists():
-                fi.set_input_files(config.resume_path)
-                time.sleep(1)
+        if config.resume_path and Path(config.resume_path).exists() and _has_file_input(page):
+            page.locator("input[type='file']").first.set_input_files(config.resume_path)
+            time.sleep(1)
 
         # Continue / Submit
         cont_btn = page.locator("button:has-text('Continue'), button:has-text('Submit')").first
         if cont_btn.is_visible():
             if "Submit" in (cont_btn.text_content() or ""):
                 cont_btn.click()
-                time.sleep(2)
-                return ApplyResult(
-                    job_url=url, company=company, role=role,
-                    success=True,
-                    message="✅ Successfully submitted via Indeed Quick Apply!",
-                    platform="indeed",
-                )
+                if _wait_for_confirmation(page):
+                    return ApplyResult(
+                        job_url=url, company=company, role=role,
+                        success=True,
+                        message="✅ Successfully submitted via Indeed Quick Apply!",
+                        platform="indeed",
+                    )
+                return _unverified(url, company, role, "indeed")
             cont_btn.click()
             time.sleep(1.5)
 
@@ -378,13 +444,14 @@ def _apply_ats_board(page, url: str, company: str, role: str, config: ApplyConfi
     submit = page.locator("input[type='submit'], button[type='submit']").first
     if submit.is_visible():
         submit.click()
-        time.sleep(2)
-        return ApplyResult(
-            job_url=url, company=company, role=role,
-            success=True,
-            message=f"✅ Application submitted via {platform.title()}!",
-            platform=platform,
-        )
+        if _wait_for_confirmation(page):
+            return ApplyResult(
+                job_url=url, company=company, role=role,
+                success=True,
+                message=f"✅ Application submitted via {platform.title()}!",
+                platform=platform,
+            )
+        return _unverified(url, company, role, platform)
 
     return ApplyResult(
         job_url=url, company=company, role=role,
@@ -405,13 +472,14 @@ def _apply_generic(page, url: str, company: str, role: str, config: ApplyConfig,
     submit = page.locator("input[type='submit'], button[type='submit'], button:has-text('Apply')").first
     if submit.is_visible():
         submit.click()
-        time.sleep(2)
-        return ApplyResult(
-            job_url=url, company=company, role=role,
-            success=True,
-            message="✅ Application submitted (generic form)!",
-            platform="generic",
-        )
+        if _wait_for_confirmation(page):
+            return ApplyResult(
+                job_url=url, company=company, role=role,
+                success=True,
+                message="✅ Application submitted (generic form)!",
+                platform="generic",
+            )
+        return _unverified(url, company, role, "generic")
 
     return ApplyResult(
         job_url=url, company=company, role=role,
@@ -447,9 +515,8 @@ def _fill_generic_form(page, config: ApplyConfig):
         # Resume upload
         if config.resume_path and Path(config.resume_path).exists():
             try:
-                file_input = page.locator("input[type='file']").first
-                if file_input.is_visible():
-                    file_input.set_input_files(config.resume_path)
+                if _has_file_input(page):
+                    page.locator("input[type='file']").first.set_input_files(config.resume_path)
                     time.sleep(0.5)
             except Exception:
                 pass
@@ -480,8 +547,8 @@ def batch_apply(
     """
     results = []
     for i, job in enumerate(jobs):
-        url = job.get("url", "")
-        company = job.get("company", "Unknown")
+        url = job.get("url") or ""
+        company = job.get("company") or "Unknown"
         role = job.get("role") or job.get("title", "Unknown")
 
         if progress_callback:

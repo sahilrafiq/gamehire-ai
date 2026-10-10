@@ -1,20 +1,27 @@
 """
 core/jobs.py
-Aggregate job listings from free, ToS-friendly public APIs.
-
-We deliberately do NOT scrape or auto-submit applications on LinkedIn, Indeed,
-Workday, etc. Automating those sites violates their Terms of Service and can
-get your account banned (and carries real legal risk). This module only reads
-public, documented job-listing APIs. Add more sources (Greenhouse/Lever job
-boards, USAJobs, etc.) the same way.
+Aggregate job listings from free, public job-listing APIs (Remotive, Adzuna,
+Arbeitnow, Jooble). This module only READS documented public APIs; it does not
+scrape any site. (Auto-apply lives separately in core/applier.py -- see the
+warning there about job-board Terms of Service.)
 """
 
+import html
+import os
 import re
 
 import requests
 
 _STOPWORDS = {"a", "an", "the", "and", "or", "for", "in", "on", "at", "to",
               "of", "with", "remote", "job", "jobs"}
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _clean(value) -> str:
+    """Strip HTML tags/entities (Jooble etc. return '<b>Data</b> Analyst')."""
+    if not value:
+        return ""
+    return " ".join(html.unescape(_TAG_RE.sub("", str(value))).split())
 
 
 def _title_matches(title: str, query: str) -> bool:
@@ -24,6 +31,7 @@ def _title_matches(title: str, query: str) -> bool:
     title_l = (title or "").lower()
     tokens = [t for t in re.findall(r"[a-zA-Z]+", query.lower()) if t not in _STOPWORDS]
     return any(t in title_l for t in tokens) if tokens else True
+
 
 REMOTIVE_URL = "https://remotive.com/api/remote-jobs"
 ADZUNA_URL = "https://api.adzuna.com/v1/api/jobs/{country}/search/1"
@@ -35,7 +43,7 @@ def search_remotive(query: str, limit: int = 20) -> list[dict]:
         resp = requests.get(REMOTIVE_URL, params={"search": query}, timeout=15)
         resp.raise_for_status()
         jobs = resp.json().get("jobs", [])[:limit]
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
         return []
     return [
         {
@@ -51,8 +59,9 @@ def search_remotive(query: str, limit: int = 20) -> list[dict]:
 
 def search_adzuna(query: str, app_id: str, app_key: str, country: str = "us",
                    location: str = "", limit: int = 20) -> list[dict]:
-    """Free tier available at https://developer.adzuna.com — set ADZUNA_APP_ID
-    and ADZUNA_APP_KEY in .env to enable. Covers on-site + remote roles."""
+    """Free tier available at https://developer.adzuna.com -- set ADZUNA_APP_ID
+    and ADZUNA_APP_KEY in .env to enable. Covers on-site + remote roles.
+    `country` is a 2-letter code (us, gb, in, ca, au, ...)."""
     if not app_id or not app_key:
         return []
     params = {
@@ -64,10 +73,10 @@ def search_adzuna(query: str, app_id: str, app_key: str, country: str = "us",
     if location:
         params["where"] = location
     try:
-        resp = requests.get(ADZUNA_URL.format(country=country), params=params, timeout=15)
+        resp = requests.get(ADZUNA_URL.format(country=country.lower()), params=params, timeout=15)
         resp.raise_for_status()
         jobs = resp.json().get("results", [])
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
         return []
     return [
         {
@@ -82,13 +91,16 @@ def search_adzuna(query: str, app_id: str, app_key: str, country: str = "us",
 
 
 def search_arbeitnow(query: str, limit: int = 20) -> list[dict]:
-    """No API key required. Aggregates mostly tech/remote roles."""
+    """No API key required. Aggregates mostly tech/remote roles. The API has no
+    search parameter, so filter by query BEFORE applying the limit (otherwise
+    the first N unrelated listings are taken and then filtered away)."""
     try:
         resp = requests.get("https://www.arbeitnow.com/api/job-board-api", timeout=15)
         resp.raise_for_status()
         jobs = resp.json().get("data", [])
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
         return []
+    jobs = [j for j in jobs if _title_matches(j.get("title", ""), query)][:limit]
     return [
         {
             "title": j.get("title"),
@@ -98,13 +110,12 @@ def search_arbeitnow(query: str, limit: int = 20) -> list[dict]:
             "source": "Arbeitnow",
         }
         for j in jobs
-    ][:limit]
+    ]
 
 
 def search_jooble(query: str, api_key: str, location: str = "", limit: int = 20) -> list[dict]:
     """Free key at https://jooble.org/api/about. Jooble is itself a
-    meta-aggregator across thousands of job sites/boards -- the closest
-    thing to 'search the whole web' via one clean, ToS-compliant API."""
+    meta-aggregator across thousands of job sites/boards."""
     if not api_key:
         return []
     try:
@@ -115,7 +126,7 @@ def search_jooble(query: str, api_key: str, location: str = "", limit: int = 20)
         )
         resp.raise_for_status()
         jobs = resp.json().get("jobs", [])[:limit]
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
         return []
     return [
         {
@@ -130,9 +141,28 @@ def search_jooble(query: str, api_key: str, location: str = "", limit: int = 20)
 
 
 def search_all(query: str, adzuna_app_id: str = "", adzuna_app_key: str = "",
-                jooble_api_key: str = "", location: str = "") -> list[dict]:
+                jooble_api_key: str = "", location: str = "", country: str = "") -> list[dict]:
+    country = country or os.getenv("ADZUNA_COUNTRY", "us")
     results = search_remotive(query)
-    results += search_adzuna(query, adzuna_app_id, adzuna_app_key, location=location)
+    results += search_adzuna(query, adzuna_app_id, adzuna_app_key, country=country, location=location)
     results += search_arbeitnow(query)
     results += search_jooble(query, jooble_api_key, location=location)
-    return [r for r in results if _title_matches(r.get("title", ""), query)]
+
+    cleaned, seen = [], set()
+    for r in results:
+        url = (r.get("url") or "").strip()
+        title = _clean(r.get("title"))
+        # The UI needs a title and a real http(s) link; also blocks javascript: URLs.
+        if not title or not url.lower().startswith(("http://", "https://")):
+            continue
+        if url in seen or not _title_matches(title, query):
+            continue
+        seen.add(url)
+        cleaned.append({
+            "title": title,
+            "company": _clean(r.get("company")),
+            "location": _clean(r.get("location")),
+            "url": url,
+            "source": r.get("source", ""),
+        })
+    return cleaned

@@ -41,8 +41,26 @@ def _from_pdf(path: str) -> str:
 
 
 def _from_docx(path: str) -> str:
+    """Read paragraphs AND tables, in document order (many resume templates
+    keep experience/skills in tables, which doc.paragraphs alone skips)."""
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
     doc = Document(path)
-    return "\n".join(p.text for p in doc.paragraphs)
+    lines = []
+    for child in doc.element.body.iterchildren():
+        if child.tag.endswith("}p"):
+            lines.append(Paragraph(child, doc).text)
+        elif child.tag.endswith("}tbl"):
+            for row in Table(child, doc).rows:
+                cells = []
+                for cell in row.cells:
+                    txt = " ".join(cell.text.split())
+                    if txt and (not cells or cells[-1] != txt):  # merged cells repeat
+                        cells.append(txt)
+                if cells:
+                    lines.append(" | ".join(cells))
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------
@@ -114,6 +132,7 @@ def text_to_docx(text: str, output_path: str) -> str:
 def text_to_pdf(text: str, output_path: str) -> str:
     """Render the same parsed blocks into a matching .pdf, via reportlab --
     no LibreOffice or MS Word install needed, works identically on any OS."""
+    from reportlab.lib import colors
     from reportlab.lib.pagesizes import LETTER
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
@@ -123,7 +142,7 @@ def text_to_pdf(text: str, output_path: str) -> str:
     styles = getSampleStyleSheet()
     heading_style = ParagraphStyle(
         "ResumeHeading", parent=styles["Heading2"],
-        spaceBefore=12, spaceAfter=4, textColor="#1a1a1a",
+        spaceBefore=12, spaceAfter=4, textColor=colors.HexColor("#1a1a1a"),
     )
     body_style = ParagraphStyle(
         "ResumeBody", parent=styles["Normal"], fontSize=10.5, leading=14, spaceAfter=4,

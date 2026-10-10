@@ -8,7 +8,7 @@ no fontawesome5), so it compiles everywhere without extra tlmgr installs.
 
 import re
 from core.parser import parse_blocks
-from core.ats import EMAIL_PATTERN, PHONE_PATTERN
+from core.ats import EMAIL_PATTERN, PHONE_PATTERN, find_phone
 
 PREAMBLE = r"""\documentclass[10pt,a4paper]{article}
 \usepackage[a4paper,margin=0.75in]{geometry}
@@ -28,8 +28,15 @@ PREAMBLE = r"""\documentclass[10pt,a4paper]{article}
 """
 
 
+_TEX_SPECIAL = {
+    "\\": r"\textbackslash{}", "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}",
+    "^": r"\textasciicircum{}", "%": r"\%", "$": r"\$", "&": r"\&", "#": r"\#", "_": r"\_",
+}
+
+
 def _esc(text: str) -> str:
-    return re.sub(r"(?<!\\)([%$&#_])", r"\\\1", text)
+    """Escape every LaTeX special character in plain resume text."""
+    return "".join(_TEX_SPECIAL.get(c, c) for c in text)
 
 
 def _split_header(text: str, blocks: list) -> tuple[dict, list]:
@@ -40,9 +47,9 @@ def _split_header(text: str, blocks: list) -> tuple[dict, list]:
     m = EMAIL_PATTERN.search(text)
     if m:
         header["email"] = m.group(0)
-    m = PHONE_PATTERN.search(text)
-    if m:
-        header["phone"] = m.group(0).strip()
+    phone = find_phone(text)
+    if phone:
+        header["phone"] = phone
     m = re.search(r"linkedin\.com/\S+", text, re.IGNORECASE)
     if m:
         header["linkedin"] = m.group(0).rstrip(".,)")
@@ -57,7 +64,7 @@ def _split_header(text: str, blocks: list) -> tuple[dict, list]:
             if not seen_name and b.text.strip() == name:
                 seen_name = True
                 continue
-            if (EMAIL_PATTERN.search(b.text) or PHONE_PATTERN.search(b.text)
+            if (EMAIL_PATTERN.search(b.text) or find_phone(b.text)
                     or "linkedin.com" in b.text.lower() or "github.com" in b.text.lower()):
                 continue
         body.append(b)

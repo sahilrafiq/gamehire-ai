@@ -50,6 +50,11 @@ def _section_spans(tex: str) -> list[tuple[str, int, int]]:
     return spans
 
 
+def _heading_matches(heading: str, keywords) -> bool:
+    """Word-start match, so 'work' matches 'Work Experience' but not 'Teamwork' or 'Networking'."""
+    return any(re.search(r"\b" + re.escape(k), heading) for k in keywords)
+
+
 def extract_segments(tex: str) -> list[TexSegment]:
     """Finds only the safe-to-rewrite prose: the summary paragraph and
     bullet points inside Experience/Project-like sections. Job titles,
@@ -59,12 +64,12 @@ def extract_segments(tex: str) -> list[TexSegment]:
     bullet_n = 0
     for heading, start, end in _section_spans(tex):
         chunk = tex[start:end]
-        if any(k in heading for k in PARAGRAPH_SECTION_KEYWORDS):
+        if _heading_matches(heading, PARAGRAPH_SECTION_KEYWORDS):
             m = re.search(r"\S.*?(?=\n\s*\n|\Z)", chunk, re.DOTALL)
             if m:
                 segments.append(TexSegment(
                     "summary", m.group(0).strip(), start + m.start(), start + m.end()))
-        elif any(k in heading for k in BULLET_SECTION_KEYWORDS):
+        elif _heading_matches(heading, BULLET_SECTION_KEYWORDS):
             for m in ITEM_PATTERN.finditer(chunk):
                 bullet_n += 1
                 segments.append(TexSegment(
@@ -84,7 +89,7 @@ def apply_edits(tex: str, segments: list[TexSegment], edits: dict) -> str:
     """Reconstructs the tex with each segment's text replaced by its edit,
     working back-to-front so earlier character offsets stay valid."""
     for seg in sorted(segments, key=lambda s: s.start, reverse=True):
-        if seg.id in edits:
+        if seg.id in edits and isinstance(edits[seg.id], str) and edits[seg.id].strip():
             new_text = _auto_escape(edits[seg.id].strip())
             tex = tex[:seg.start] + new_text + tex[seg.end:]
     return tex
@@ -119,14 +124,19 @@ def compile_pdf(tex_source: str, output_pdf_path: str) -> str:
         tex_path.write_text(tex_source, encoding="utf-8")
         result = None
         for _ in range(2):  # twice: settles spacing/refs, harmless if unneeded
-            result = subprocess.run(
-                # No -halt-on-error: matches Overleaf's default behavior of
-                # recovering from non-fatal errors (e.g. a stray '#' in a
-                # \href URL) and still producing a PDF, rather than aborting.
-                ["pdflatex", "-interaction=nonstopmode",
-                 "-output-directory", workdir, str(tex_path)],
-                cwd=workdir, capture_output=True, text=True, timeout=60,
-            )
+            try:
+                result = subprocess.run(
+                    # No -halt-on-error: matches Overleaf's default behavior of
+                    # recovering from non-fatal errors (e.g. a stray '#' in a
+                    # \href URL) and still producing a PDF, rather than aborting.
+                    ["pdflatex", "-interaction=nonstopmode",
+                     "-output-directory", workdir, str(tex_path)],
+                    cwd=workdir, capture_output=True, text=True, timeout=120,
+                )
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(
+                    "pdflatex timed out. If this is your first compile, TinyTeX may be "
+                    "downloading missing packages -- try once more.")
         produced = Path(workdir) / "resume.pdf"
         if not produced.exists() or produced.stat().st_size == 0:
             log_path = Path(workdir) / "resume.log"

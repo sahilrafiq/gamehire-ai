@@ -1,4 +1,4 @@
-﻿"""
+"""
 app.py
 Streamlit UI — cinematic anime-themed design with glassmorphism, gradient
 animations, and a professional modern aesthetic.
@@ -7,6 +7,7 @@ Run with:
     streamlit run app.py
 """
 
+import html as _html
 import os
 import tempfile
 import threading
@@ -16,14 +17,26 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
+load_dotenv()  # must run BEFORE importing core.* so .env settings are visible to them
+
 from core import ai, ats, jobs, latex_editor, latex_generator, parser, tracker
 from core.applier import ApplyConfig, ApplyResult, batch_apply, apply_to_job, _is_playwright_available
 
-load_dotenv()
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+def _esc(value) -> str:
+    """HTML-escape any text (job titles, keywords, ...) before putting it in unsafe_allow_html markup."""
+    return _html.escape(str(value if value is not None else ""), quote=True)
+
+
+def _safe_url(url) -> str:
+    """Escaped URL, or '#' unless it is a plain http(s) link (blocks javascript: URLs)."""
+    url = str(url or "").strip()
+    return _esc(url) if url.lower().startswith(("http://", "https://")) else "#"
+
+
+# ─────────────────────────────────────────────────────────────────
 #  PAGE CONFIG
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="GameHire — AI Job Search Copilot",
     page_icon="⚡",
@@ -31,15 +44,15 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 #  CINEMATIC ANIME-THEMED CSS
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-/* â”€â”€ Google Fonts â”€â”€ */
+/* ── Google Fonts ── */
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
 
-/* â”€â”€ CSS Variables â”€â”€ */
+/* ── CSS Variables ── */
 :root {
     --bg-deep:       #04060f;
     --bg-base:       #070c1a;
@@ -75,7 +88,7 @@ st.markdown("""
     --transition:    all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* â”€â”€ Global Reset & Body â”€â”€ */
+/* ── Global Reset & Body ── */
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body, [data-testid="stApp"], .stApp {
@@ -103,18 +116,18 @@ html, body, [data-testid="stApp"], .stApp {
     100% { opacity: 1.0; }
 }
 
-/* â”€â”€ Scrollbar â”€â”€ */
+/* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg-deep); }
 ::-webkit-scrollbar-thumb { background: rgba(155,93,229,0.5); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--neon-purple); }
 
-/* â”€â”€ Hide Streamlit chrome â”€â”€ */
+/* ── Hide Streamlit chrome ── */
 #MainMenu, footer, header { display: none !important; }
 [data-testid="stDecoration"] { display: none !important; }
 .stDeployButton { display: none !important; }
 
-/* â”€â”€ Main container â”€â”€ */
+/* ── Main container ── */
 .block-container {
     padding: 0 2rem 3rem !important;
     max-width: 1400px !important;
@@ -123,7 +136,7 @@ html, body, [data-testid="stApp"], .stApp {
     z-index: 1;
 }
 
-/* â”€â”€ HERO HEADER â”€â”€ */
+/* ── HERO HEADER ── */
 .game-hero {
     text-align: center;
     padding: 3rem 1rem 2rem;
@@ -208,7 +221,7 @@ html, body, [data-testid="stApp"], .stApp {
     50%       { opacity: 0.5; transform: scale(1.5); }
 }
 
-/* â”€â”€ STAT CARDS (dashboard row) â”€â”€ */
+/* ── STAT CARDS (dashboard row) ── */
 .stat-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
@@ -262,7 +275,7 @@ html, body, [data-testid="stApp"], .stApp {
     font-weight: 600;
 }
 
-/* â”€â”€ TABS â”€â”€ */
+/* ── TABS ── */
 .stTabs [data-baseweb="tab-list"] {
     background: var(--glass) !important;
     border: 1px solid var(--glass-border) !important;
@@ -301,7 +314,7 @@ html, body, [data-testid="stApp"], .stApp {
 .stTabs [data-baseweb="tab-highlight"] { display: none !important; }
 .stTabs [data-baseweb="tab-border"]    { display: none !important; }
 
-/* â”€â”€ SECTION HEADERS â”€â”€ */
+/* ── SECTION HEADERS ── */
 .section-header {
     display: flex;
     align-items: center;
@@ -335,7 +348,7 @@ html, body, [data-testid="stApp"], .stApp {
     margin: 2px 0 0;
 }
 
-/* â”€â”€ GLASS CARDS â”€â”€ */
+/* ── GLASS CARDS ── */
 .glass-card {
     background: var(--bg-card);
     border: 1px solid var(--glass-border);
@@ -362,7 +375,7 @@ html, body, [data-testid="stApp"], .stApp {
     box-shadow: var(--shadow-neon);
 }
 
-/* â”€â”€ JOB RESULT CARDS â”€â”€ */
+/* ── JOB RESULT CARDS ── */
 .job-card {
     background: var(--glass);
     border: 1px solid var(--glass-border);
@@ -412,7 +425,7 @@ html, body, [data-testid="stApp"], .stApp {
 .badge-jooble { background: rgba(155,93,229,0.12); color: #9b5de5; border: 1px solid rgba(155,93,229,0.2); }
 .badge-arbeitnow { background: rgba(255,214,10,0.12); color: #ffd60a; border: 1px solid rgba(255,214,10,0.2); }
 
-/* â”€â”€ FIT SCORE RING â”€â”€ */
+/* ── FIT SCORE RING ── */
 .fit-ring {
     display: inline-flex;
     flex-direction: column;
@@ -447,7 +460,7 @@ html, body, [data-testid="stApp"], .stApp {
     box-shadow: 0 0 16px rgba(247,37,133,0.3);
 }
 
-/* â”€â”€ BUTTONS â”€â”€ */
+/* ── BUTTONS ── */
 .stButton > button {
     font-family: 'Outfit', sans-serif !important;
     font-weight: 600 !important;
@@ -508,7 +521,7 @@ button.auto-apply-btn {
     transform: translateY(-1px) !important;
 }
 
-/* â”€â”€ FORM INPUTS â”€â”€ */
+/* ── FORM INPUTS ── */
 .stTextInput > div > div > input,
 .stTextArea > div > div > textarea,
 .stSelectbox > div > div {
@@ -540,7 +553,7 @@ button.auto-apply-btn {
     margin-bottom: 4px !important;
 }
 
-/* â”€â”€ FILE UPLOADER â”€â”€ */
+/* ── FILE UPLOADER ── */
 [data-testid="stFileUploader"] {
     background: rgba(155,93,229,0.04) !important;
     border: 2px dashed rgba(155,93,229,0.25) !important;
@@ -554,7 +567,7 @@ button.auto-apply-btn {
     background: rgba(155,93,229,0.08) !important;
 }
 
-/* â”€â”€ METRICS â”€â”€ */
+/* ── METRICS ── */
 [data-testid="stMetric"] {
     background: var(--glass) !important;
     border: 1px solid var(--glass-border) !important;
@@ -581,7 +594,7 @@ button.auto-apply-btn {
     letter-spacing: 0.06em !important;
 }
 
-/* â”€â”€ ALERTS / INFO / SUCCESS / WARNING â”€â”€ */
+/* ── ALERTS / INFO / SUCCESS / WARNING ── */
 .stAlert, [data-testid="stNotification"] {
     border-radius: var(--radius-md) !important;
     border-left-width: 3px !important;
@@ -613,7 +626,7 @@ button.auto-apply-btn {
     border-color: var(--neon-pink) !important;
 }
 
-/* â”€â”€ EXPANDER â”€â”€ */
+/* ── EXPANDER ── */
 details {
     background: var(--glass) !important;
     border: 1px solid var(--glass-border) !important;
@@ -634,12 +647,12 @@ details summary {
 details summary:hover { color: var(--text-primary) !important; }
 details[open] summary { color: var(--neon-cyan) !important; }
 
-/* â”€â”€ SPINNER â”€â”€ */
+/* ── SPINNER ── */
 .stSpinner > div {
     border-top-color: var(--neon-purple) !important;
 }
 
-/* â”€â”€ PROGRESS / STATUS INDICATORS â”€â”€ */
+/* ── PROGRESS / STATUS INDICATORS ── */
 .apply-status {
     display: inline-flex;
     align-items: center;
@@ -658,7 +671,7 @@ details[open] summary { color: var(--neon-cyan) !important; }
 .status-offer     { background: rgba(67,233,123,0.12);  color: #43e97b; border: 1px solid rgba(67,233,123,0.2); }
 .status-rejected  { background: rgba(247,37,133,0.12);  color: #f72585; border: 1px solid rgba(247,37,133,0.2); }
 
-/* â”€â”€ DIVIDER â”€â”€ */
+/* ── DIVIDER ── */
 hr {
     border: none !important;
     height: 1px !important;
@@ -666,7 +679,7 @@ hr {
     margin: 1.5rem 0 !important;
 }
 
-/* â”€â”€ CODE / MONO TEXT â”€â”€ */
+/* ── CODE / MONO TEXT ── */
 code, pre, .stCodeBlock {
     font-family: 'JetBrains Mono', monospace !important;
     background: rgba(0,0,0,0.4) !important;
@@ -674,7 +687,7 @@ code, pre, .stCodeBlock {
     border-radius: var(--radius-sm) !important;
 }
 
-/* â”€â”€ ATS SCORE BAR â”€â”€ */
+/* ── ATS SCORE BAR ── */
 .ats-bar-wrap {
     background: rgba(255,255,255,0.05);
     border-radius: 100px;
@@ -690,7 +703,7 @@ code, pre, .stCodeBlock {
     background: var(--grad-accent);
 }
 
-/* â”€â”€ CHECK LIST â”€â”€ */
+/* ── CHECK LIST ── */
 .check-item {
     display: flex;
     align-items: center;
@@ -705,7 +718,7 @@ code, pre, .stCodeBlock {
 .check-item.pass { color: var(--neon-green); }
 .check-item.fail { color: var(--text-muted); }
 
-/* â”€â”€ TRACKER ROW â”€â”€ */
+/* ── TRACKER ROW ── */
 .tracker-row {
     background: var(--glass);
     border: 1px solid var(--glass-border);
@@ -724,7 +737,7 @@ code, pre, .stCodeBlock {
     background: var(--bg-hover);
 }
 
-/* â”€â”€ PIPELINE FUNNEL â”€â”€ */
+/* ── PIPELINE FUNNEL ── */
 .pipeline {
     display: flex;
     gap: 6px;
@@ -744,7 +757,7 @@ code, pre, .stCodeBlock {
 }
 
 .pipeline-stage:not(:last-child)::after {
-    content: 'â€º';
+    content: '›';
     position: absolute;
     right: -10px;
     top: 50%;
@@ -769,7 +782,7 @@ code, pre, .stCodeBlock {
     font-weight: 600;
 }
 
-/* â”€â”€ ANIME DECORATIVE ELEMENTS â”€â”€ */
+/* ── ANIME DECORATIVE ELEMENTS ── */
 .deco-line {
     height: 1px;
     background: var(--grad-accent);
@@ -815,9 +828,9 @@ h2[data-testid="stHeading"], .stSubheader {
 </style>
 """, unsafe_allow_html=True)
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 #  SESSION STATE DEFAULTS
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 defaults = {
     "resume_text": "",
     "jd_text": "",
@@ -834,9 +847,9 @@ for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 #  HERO HEADER
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="game-hero">
     <div class="game-badge">⚡ AI-Powered · Local & Private</div>
@@ -845,9 +858,9 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 #  QUICK STATS BAR
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 stats = tracker.get_stats()
 c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
 stat_data = [
@@ -870,26 +883,26 @@ for col, num, label, color in stat_data:
 
 st.markdown("<div class='deco-line'></div>", unsafe_allow_html=True)
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 #  TABS
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "ðŸ“„ Resume & ATS",
-    "âœ¨ AI Improver",
-    "ðŸ“ Cover Letter",
-    "ðŸ” Job Search",
-    "ðŸ¤– Auto-Apply",
-    "ðŸŽ™ï¸ Interview Prep",
-    "ðŸ“Š Tracker",
+    "📄 Resume & ATS",
+    "✨ AI Improver",
+    "📝 Cover Letter",
+    "🔍 Job Search",
+    "🤖 Auto-Apply",
+    "🎙️ Interview Prep",
+    "📊 Tracker",
 ])
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 #  TAB 1 — Resume & ATS
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 with tab1:
     st.markdown("""
     <div class="section-header">
-        <div class="section-icon" style="background:linear-gradient(135deg,rgba(0,207,255,0.2),rgba(155,93,229,0.2))">ðŸ“„</div>
+        <div class="section-icon" style="background:linear-gradient(135deg,rgba(0,207,255,0.2),rgba(155,93,229,0.2))">📄</div>
         <div>
             <div class="section-title">Resume Upload & ATS Analysis</div>
             <div class="section-subtitle">Upload your resume and optionally paste a job description for targeted scoring</div>
@@ -908,19 +921,29 @@ with tab1:
         if uploaded is not None:
             suffix = Path(uploaded.name).suffix
             st.session_state.original_ext = suffix if suffix in (".pdf", ".docx") else ".docx"
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                tmp.write(uploaded.read())
-                tmp_path = tmp.name
-            try:
-                st.session_state.resume_text = parser.extract_text(tmp_path)
+            # Parse only when a NEW file is uploaded. Re-parsing on every rerun would
+            # overwrite whatever the user has edited in the text box below.
+            upload_id = (uploaded.name, uploaded.size)
+            if st.session_state.get("_parsed_upload") != upload_id:
+                tmp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                        tmp.write(uploaded.getvalue())
+                        tmp_path = tmp.name
+                    st.session_state.resume_text = parser.extract_text(tmp_path)
+                    st.session_state["_parsed_upload"] = upload_id
+                except Exception as e:
+                    st.error(str(e))
+                finally:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.remove(tmp_path)  # don't leave resumes lying around in the temp folder
+            if st.session_state.get("_parsed_upload") == upload_id:
                 wc = len(st.session_state.resume_text.split())
-                st.success(f"âœ… Loaded **{uploaded.name}** — {wc} words extracted")
-            except Exception as e:
-                st.error(str(e))
+                st.success(f"✅ Loaded **{uploaded.name}** — {wc} words extracted")
 
-        st.session_state.resume_text = st.text_area(
+        st.text_area(
             "Resume text (auto-filled, editable)",
-            value=st.session_state.resume_text,
+            key="resume_text",
             height=280,
             placeholder="Paste your resume text here, or upload a file above...",
         )
@@ -938,8 +961,8 @@ with tab1:
 
     btn_col1, btn_col2, btn_col3 = st.columns(3)
     run_ats   = btn_col1.button("⚡ Run ATS Score", type="primary", use_container_width=True)
-    run_kw    = btn_col2.button("ðŸ”‘ Keyword Gap Analysis", use_container_width=True, disabled=not has_jd)
-    run_rev   = btn_col3.button("ðŸ” General Resume Review", use_container_width=True)
+    run_kw    = btn_col2.button("🔑 Keyword Gap Analysis", use_container_width=True, disabled=not has_jd)
+    run_rev   = btn_col3.button("🔍 General Resume Review", use_container_width=True)
 
     if run_ats:
         if not has_resume:
@@ -970,7 +993,7 @@ with tab1:
                     <div style="flex:1">
                         <div style="font-size:0.9rem;font-weight:700;color:var(--text-primary);margin-bottom:6px">{label}</div>
                         <div class="ats-bar-wrap"><div class="ats-bar-fill" style="width:{score_val}%;background:{'var(--neon-green)' if score_val>=80 else 'var(--neon-cyan)' if score_val>=60 else 'var(--neon-gold)' if score_val>=40 else 'var(--neon-pink)'}"></div></div>
-                        <div style="font-size:0.78rem;color:var(--text-muted)">Word count: {result.get('word_count', 'â€“')}</div>
+                        <div style="font-size:0.78rem;color:var(--text-muted)">Word count: {result.get('word_count', '–')}</div>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
@@ -978,22 +1001,22 @@ with tab1:
             if result["mode"] == "targeted":
                 kc1, kc2 = st.columns(2)
                 with kc1:
-                    st.markdown(f"**ðŸŽ¯ Keyword Match:** `{result['keyword_score']}/100`")
+                    st.markdown(f"**🎯 Keyword Match:** `{result['keyword_score']}/100`")
                     matched = result.get("matched_keywords", [])
                     if matched:
-                        kw_html = " ".join(f'<span style="background:rgba(67,233,123,0.15);color:#43e97b;padding:2px 8px;border-radius:100px;font-size:0.72rem;margin:2px;display:inline-block">{kw}</span>' for kw in matched[:15])
+                        kw_html = " ".join(f'<span style="background:rgba(67,233,123,0.15);color:#43e97b;padding:2px 8px;border-radius:100px;font-size:0.72rem;margin:2px;display:inline-block">{_esc(kw)}</span>' for kw in matched[:15])
                         st.markdown(f"**Matched:** {kw_html}", unsafe_allow_html=True)
                 with kc2:
-                    st.markdown(f"**ðŸ“‹ Best Practices:** `{result['general_score']}/100`")
+                    st.markdown(f"**📋 Best Practices:** `{result['general_score']}/100`")
                     missing = result.get("missing_keywords", [])
                     if missing:
-                        kw_html = " ".join(f'<span style="background:rgba(247,37,133,0.15);color:#f72585;padding:2px 8px;border-radius:100px;font-size:0.72rem;margin:2px;display:inline-block">{kw}</span>' for kw in missing[:15])
+                        kw_html = " ".join(f'<span style="background:rgba(247,37,133,0.15);color:#f72585;padding:2px 8px;border-radius:100px;font-size:0.72rem;margin:2px;display:inline-block">{_esc(kw)}</span>' for kw in missing[:15])
                         st.markdown(f"**Missing:** {kw_html}", unsafe_allow_html=True)
                 st.caption("Overall blends keyword match (65%) with best practices (35%)")
 
             st.markdown("<div style='margin-top:1rem'>", unsafe_allow_html=True)
             for check, passed in result["general_checks"].items():
-                icon = "âœ…" if passed else "âš ï¸"
+                icon = "✅" if passed else "⚠️"
                 cls  = "pass" if passed else "fail"
                 st.markdown(f'<div class="check-item {cls}"><span class="check-icon">{icon}</span>{check}</div>', unsafe_allow_html=True)
             st.markdown("</div></div>", unsafe_allow_html=True)
@@ -1019,13 +1042,13 @@ with tab1:
                     st.error(str(e))
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 #  TAB 2 — AI Resume Improver
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 with tab2:
     st.markdown("""
     <div class="section-header">
-        <div class="section-icon" style="background:linear-gradient(135deg,rgba(155,93,229,0.2),rgba(247,37,133,0.2))">âœ¨</div>
+        <div class="section-icon" style="background:linear-gradient(135deg,rgba(155,93,229,0.2),rgba(247,37,133,0.2))">✨</div>
         <div>
             <div class="section-title">AI Resume Improver</div>
             <div class="section-subtitle">Advanced rewriting with power verbs, quantified impact, PAR format & ATS optimization</div>
@@ -1038,11 +1061,11 @@ with tab2:
 
     # Mode indicator
     if has_jd:
-        mode_color, mode_icon, mode_text = "var(--neon-cyan)", "ðŸŽ¯", "Tailoring to your job description from Tab 1"
+        mode_color, mode_icon, mode_text = "var(--neon-cyan)", "🎯", "Tailoring to your job description from Tab 1"
     elif st.session_state.get("target_keywords", "").strip():
-        mode_color, mode_icon, mode_text = "var(--neon-purple)", "ðŸ”§", f"Optimizing for: **{st.session_state.target_keywords}**"
+        mode_color, mode_icon, mode_text = "var(--neon-purple)", "🔧", f"Optimizing for: **{st.session_state.target_keywords}**"
     else:
-        mode_color, mode_icon, mode_text = "var(--neon-gold)", "âœ¨", "General best-practices improvement (no JD set)"
+        mode_color, mode_icon, mode_text = "var(--neon-gold)", "✨", "General best-practices improvement (no JD set)"
 
     st.markdown(f"""
     <div style="background:rgba(255,255,255,0.03);border:1px solid {mode_color}33;border-left:3px solid {mode_color};
@@ -1061,30 +1084,30 @@ with tab2:
         )
 
     # Improvement options
-    st.markdown("**âš™ï¸ Improvement Options**")
+    st.markdown("**⚙️ Improvement Options**")
     opt_cols = st.columns(4)
-    opt_power_verbs  = opt_cols[0].checkbox("ðŸ’ª Power Verbs",   value=True)
-    opt_quantify     = opt_cols[1].checkbox("ðŸ“Š Quantify Impact",value=True)
-    opt_par          = opt_cols[2].checkbox("ðŸŽ¯ PAR Format",     value=True)
-    opt_ats_density  = opt_cols[3].checkbox("ðŸ”‘ ATS Keywords",   value=True)
+    opt_power_verbs  = opt_cols[0].checkbox("💪 Power Verbs",   value=True)
+    opt_quantify     = opt_cols[1].checkbox("📊 Quantify Impact",value=True)
+    opt_par          = opt_cols[2].checkbox("🎯 PAR Format",     value=True)
+    opt_ats_density  = opt_cols[3].checkbox("🔑 ATS Keywords",   value=True)
 
-    with st.expander("ðŸ“Ž Upload .tex source (preserves your Overleaf design)"):
+    with st.expander("📎 Upload .tex source (preserves your Overleaf design)"):
         tex_file = st.file_uploader("Resume .tex file", type=["tex"], key="tex_upload")
         if tex_file is not None:
             st.session_state.original_tex = tex_file.read().decode("utf-8", errors="ignore")
         if st.session_state.get("original_tex"):
-            st.success("âœ… Using your uploaded .tex as the base design — output will match your template exactly.")
+            st.success("✅ Using your uploaded .tex as the base design — output will match your template exactly.")
 
     improve_col1, improve_col2 = st.columns([1, 1])
 
     with improve_col1:
-        if st.button("âœ¨ Improve My Resume", type="primary", use_container_width=True):
+        if st.button("✨ Improve My Resume", type="primary", use_container_width=True):
             if not has_resume:
                 st.warning("Add a resume in Tab 1 first.")
             else:
                 jd = st.session_state.jd_text
                 kw = st.session_state.get("target_keywords", "")
-                with st.spinner("ðŸ”® AI is rewriting your resume with advanced techniques..."):
+                with st.spinner("🔮 AI is rewriting your resume with advanced techniques..."):
                     try:
                         using_tex = bool(st.session_state.get("original_tex"))
                         base_tex  = (
@@ -1106,13 +1129,13 @@ with tab2:
                         st.session_state.improved_resume = ai.improve_resume(
                             st.session_state.resume_text, jd, kw)
                         st.session_state.used_tex_source = using_tex
-                        st.success("âœ… Resume improved! Scroll down to preview and download.")
+                        st.success("✅ Resume improved! Scroll down to preview and download.")
                     except Exception as e:
                         st.error(f"Error: {str(e)}")
 
     with improve_col2:
         if has_jd and has_resume:
-            if st.button("ðŸŽ¯ Score Job Fit (AI)", use_container_width=True):
+            if st.button("🎯 Score Job Fit (AI)", use_container_width=True):
                 with st.spinner("Calculating job fit..."):
                     try:
                         fit = ai.score_job_fit(st.session_state.resume_text, st.session_state.jd_text)
@@ -1140,7 +1163,7 @@ with tab2:
                     <div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em">Fit Score</div>
                 </div>
                 <div style="flex:1">
-                    <div style="font-size:0.95rem;font-weight:700;color:{rec_color};margin-bottom:4px">â†’ {rec}</div>
+                    <div style="font-size:0.95rem;font-weight:700;color:{rec_color};margin-bottom:4px">→ {rec}</div>
                     <div style="font-size:0.82rem;color:var(--text-secondary)">{fit.get('reasoning','')}</div>
                 </div>
             </div>
@@ -1157,15 +1180,15 @@ with tab2:
             col.metric(label, f"{val}/100")
 
         if fit.get("strengths"):
-            st.markdown("**âœ… Strengths:** " + " · ".join(fit["strengths"]))
+            st.markdown("**✅ Strengths:** " + " · ".join(fit["strengths"]))
         if fit.get("gaps"):
-            st.markdown("**âš ï¸ Gaps:** " + " · ".join(fit["gaps"]))
+            st.markdown("**⚠️ Gaps:** " + " · ".join(fit["gaps"]))
         st.markdown("</div>", unsafe_allow_html=True)
 
     # Preview & Downloads
     if st.session_state.get("edited_tex"):
         st.markdown("---")
-        st.markdown("**ðŸ“„ Preview & Download Your Improved Resume**")
+        st.markdown("**📄 Preview & Download Your Improved Resume**")
         with st.expander("View generated .tex source"):
             st.code(st.session_state.edited_tex, language="latex")
 
@@ -1182,36 +1205,36 @@ with tab2:
                 latex_editor.compile_pdf(st.session_state.edited_tex, pdf_path)
                 pdf_ready = True
             except Exception as e:
-                st.warning(f"LaTeXâ†’PDF compile failed, falling back to simple PDF. Paste the .tex into Overleaf for the polished version. Error: {e}")
+                st.warning(f"LaTeX→PDF compile failed, falling back to simple PDF. Paste the .tex into Overleaf for the polished version. Error: {e}")
         if not pdf_ready:
             parser.text_to_pdf(st.session_state.improved_resume, pdf_path)
 
         dl1, dl2, dl3 = st.columns(3)
         with dl1:
             with open(pdf_path, "rb") as f:
-                label = "â¬‡ï¸ Download PDF" + ("  (LaTeX design)" if pdf_ready else "  (simple)")
+                label = "⬇️ Download PDF" + ("  (LaTeX design)" if pdf_ready else "  (simple)")
                 st.download_button(label, f, file_name="improved_resume.pdf", use_container_width=True)
         with dl2:
             with open(docx_path, "rb") as f:
-                st.download_button("â¬‡ï¸ Download DOCX", f, file_name="improved_resume.docx", use_container_width=True)
+                st.download_button("⬇️ Download DOCX", f, file_name="improved_resume.docx", use_container_width=True)
         with dl3:
             with open(tex_path, "rb") as f:
-                st.download_button("â¬‡ï¸ Download .tex (Overleaf)", f, file_name="improved_resume.tex", use_container_width=True)
+                st.download_button("⬇️ Download .tex (Overleaf)", f, file_name="improved_resume.tex", use_container_width=True)
 
         if not pdf_ready:
-            st.caption("ðŸ’¡ No local LaTeX detected. Install TinyTeX (see README) or paste the .tex into Overleaf for the full polished design.")
+            st.caption("💡 No local LaTeX detected. Install TinyTeX (see README) or paste the .tex into Overleaf for the full polished design.")
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 #  TAB 3 — Cover Letter
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 with tab3:
     st.markdown("""
     <div class="section-header">
-        <div class="section-icon" style="background:linear-gradient(135deg,rgba(67,233,123,0.2),rgba(0,207,255,0.2))">ðŸ“</div>
+        <div class="section-icon" style="background:linear-gradient(135deg,rgba(67,233,123,0.2),rgba(0,207,255,0.2))">📝</div>
         <div>
             <div class="section-title">Cover Letter Generator</div>
-            <div class="section-subtitle">Hook-first, clichÃ©-free cover letters tailored to the specific role</div>
+            <div class="section-subtitle">Hook-first, cliché-free cover letters tailored to the specific role</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1223,20 +1246,20 @@ with tab3:
     cl_col1, cl_col2 = st.columns([1, 1])
 
     with cl_col1:
-        if st.button("ðŸ“ Generate Cover Letter", type="primary", use_container_width=True):
+        if st.button("📝 Generate Cover Letter", type="primary", use_container_width=True):
             if not st.session_state.resume_text or not st.session_state.jd_text:
                 st.warning("Add a resume and job description in Tab 1 first.")
             else:
-                with st.spinner("âœï¸ Writing your cover letter..."):
+                with st.spinner("✍️ Writing your cover letter..."):
                     try:
                         st.session_state.cover_letter = ai.generate_cover_letter(
                             st.session_state.resume_text, st.session_state.jd_text, company, role)
-                        st.success("âœ… Cover letter generated!")
+                        st.success("✅ Cover letter generated!")
                     except Exception as e:
                         st.error(str(e))
 
     with cl_col2:
-        if st.button("ðŸ’¬ LinkedIn Outreach Messages", use_container_width=True):
+        if st.button("💬 LinkedIn Outreach Messages", use_container_width=True):
             if not st.session_state.resume_text or not st.session_state.jd_text:
                 st.warning("Add a resume and job description in Tab 1 first.")
             else:
@@ -1259,7 +1282,7 @@ with tab3:
 
         # Download cover letter as txt
         st.download_button(
-            "â¬‡ï¸ Download Cover Letter (.txt)",
+            "⬇️ Download Cover Letter (.txt)",
             st.session_state.cover_letter,
             file_name=f"cover_letter_{company or 'job'}.txt",
             mime="text/plain",
@@ -1271,13 +1294,13 @@ with tab3:
         st.markdown(st.session_state.linkedin_msgs)
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 #  TAB 4 — Job Search
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 with tab4:
     st.markdown("""
     <div class="section-header">
-        <div class="section-icon" style="background:linear-gradient(135deg,rgba(255,214,10,0.2),rgba(255,149,0,0.2))">ðŸ”</div>
+        <div class="section-icon" style="background:linear-gradient(135deg,rgba(255,214,10,0.2),rgba(255,149,0,0.2))">🔍</div>
         <div>
             <div class="section-title">Job Search</div>
             <div class="section-subtitle">Searches Remotive, Adzuna, Arbeitnow & Jooble — public APIs, ToS-compliant</div>
@@ -1290,10 +1313,10 @@ with tab4:
     loc = search_col2.text_input("Location", placeholder="Location (optional)", label_visibility="collapsed")
 
     with search_col3:
-        search_clicked = st.button("ðŸ” Search", type="primary", use_container_width=True)
+        search_clicked = st.button("🔍 Search", type="primary", use_container_width=True)
 
     if search_clicked and q:
-        with st.spinner("ðŸŒ Searching across all job boards..."):
+        with st.spinner("🌐 Searching across all job boards..."):
             st.session_state.job_results = jobs.search_all(
                 q,
                 adzuna_app_id=os.getenv("ADZUNA_APP_ID", ""),
@@ -1308,7 +1331,7 @@ with tab4:
     if not results:
         st.markdown("""
         <div style="text-align:center;padding:3rem;color:var(--text-muted)">
-            <div style="font-size:3rem;margin-bottom:0.5rem">ðŸ”</div>
+            <div style="font-size:3rem;margin-bottom:0.5rem">🔍</div>
             <div style="font-size:1rem;font-weight:600">Search for jobs above to see results</div>
             <div style="font-size:0.8rem;margin-top:0.3rem">Searches Remotive, Adzuna, Arbeitnow, and Jooble simultaneously</div>
         </div>
@@ -1318,10 +1341,10 @@ with tab4:
 
         # Select all / deselect all
         sel_col1, sel_col2, sel_col3 = st.columns([1, 1, 4])
-        if sel_col1.button("â˜‘ï¸ Select All", use_container_width=True):
+        if sel_col1.button("☑️ Select All", use_container_width=True):
             st.session_state.selected_jobs = {r["url"] for r in results}
             st.rerun()
-        if sel_col2.button("â˜ Deselect All", use_container_width=True):
+        if sel_col2.button("☐ Deselect All", use_container_width=True):
             st.session_state.selected_jobs = set()
             st.rerun()
 
@@ -1338,7 +1361,7 @@ with tab4:
             with rc1:
                 selected = r["url"] in st.session_state.selected_jobs
                 checked  = st.checkbox(
-                    f"**{r['title']}** — {r['company'] or 'Unknown'}  â€¢  {r['location'] or ''}",
+                    f"**{r['title']}** — {r['company'] or 'Unknown'}  •  {r['location'] or ''}",
                     value=selected,
                     key=f"sel_{i}_{r['url'][:30]}",
                 )
@@ -1348,13 +1371,13 @@ with tab4:
                     st.session_state.selected_jobs.discard(r["url"])
 
                 st.markdown(
-                    f'<span class="platform-badge {badge_class}">{source}</span>'
-                    f' <a href="{r["url"]}" target="_blank" style="color:var(--neon-cyan);font-size:0.78rem;text-decoration:none">Open listing â†—</a>',
+                    f'<span class="platform-badge {badge_class}">{_esc(source)}</span>'
+                    f' <a href="{_safe_url(r["url"])}" target="_blank" rel="noopener noreferrer" style="color:var(--neon-cyan);font-size:0.78rem;text-decoration:none">Open listing ↗</a>',
                     unsafe_allow_html=True
                 )
 
             with rc2:
-                if st.button("âž• Track", key=f"add_{i}", use_container_width=True):
+                if st.button("➕ Track", key=f"add_{i}", use_container_width=True):
                     tracker.add_application(r["company"] or "Unknown", r["title"], r["url"])
                     st.success("Added to tracker!")
 
@@ -1364,23 +1387,23 @@ with tab4:
                     fit = st.session_state.fit_scores[r["url"]]
                     score = fit.get("overall_score", 0)
                     color = "var(--neon-green)" if score >= 80 else "var(--neon-cyan)" if score >= 65 else "var(--neon-gold)" if score >= 50 else "var(--neon-pink)"
-                    st.markdown(f'<span style="font-size:0.75rem;color:{color}">Fit: {score}/100 · {fit.get("recommendation","")}</span>', unsafe_allow_html=True)
+                    st.markdown(f'<span style="font-size:0.75rem;color:{color}">Fit: {score}/100 · {_esc(fit.get("recommendation",""))}</span>', unsafe_allow_html=True)
 
             st.markdown("<hr style='margin:0.4rem 0'>", unsafe_allow_html=True)
 
         # Batch track selected
         if st.session_state.selected_jobs:
             n_selected = len(st.session_state.selected_jobs)
-            st.info(f"**{n_selected} jobs selected** — go to the **ðŸ¤– Auto-Apply** tab to apply!")
+            st.info(f"**{n_selected} jobs selected** — go to the **🤖 Auto-Apply** tab to apply!")
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 #  TAB 5 — Auto-Apply
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 with tab5:
     st.markdown("""
     <div class="section-header">
-        <div class="section-icon" style="background:linear-gradient(135deg,rgba(247,37,133,0.2),rgba(155,93,229,0.2))">ðŸ¤–</div>
+        <div class="section-icon" style="background:linear-gradient(135deg,rgba(247,37,133,0.2),rgba(155,93,229,0.2))">🤖</div>
         <div>
             <div class="section-title">Auto-Apply Automation</div>
             <div class="section-subtitle">LinkedIn Easy Apply · Indeed Quick Apply · Greenhouse · Lever · Generic forms</div>
@@ -1393,7 +1416,7 @@ with tab5:
     if not playwright_ok:
         st.markdown("""
         <div style="background:rgba(255,214,10,0.08);border:1px solid rgba(255,214,10,0.3);border-left:3px solid var(--neon-gold);border-radius:var(--radius-sm);padding:1rem;margin-bottom:1rem">
-            <div style="font-size:0.9rem;font-weight:700;color:var(--neon-gold);margin-bottom:0.4rem">âš ï¸ Playwright Not Installed</div>
+            <div style="font-size:0.9rem;font-weight:700;color:var(--neon-gold);margin-bottom:0.4rem">⚠️ Playwright Not Installed</div>
             <div style="font-size:0.82rem;color:var(--text-secondary)">Auto-apply requires Playwright. Install it with:</div>
             <code style="display:block;margin-top:0.5rem;background:rgba(0,0,0,0.3);padding:0.5rem;border-radius:6px;color:var(--neon-cyan)">pip install playwright && playwright install chromium</code>
             <div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.4rem">You can still use all other features without Playwright.</div>
@@ -1402,35 +1425,35 @@ with tab5:
 
     st.markdown("""
     <div style="background:rgba(247,37,133,0.06);border:1px solid rgba(247,37,133,0.2);border-radius:var(--radius-sm);padding:0.8rem 1rem;margin-bottom:1rem;font-size:0.82rem;color:var(--text-secondary)">
-        <strong style="color:var(--neon-pink)">âš ï¸ Important:</strong> Auto-apply works with Easy Apply / Quick Apply features.
+        <strong style="color:var(--neon-pink)">⚠️ Important:</strong> Auto-apply works with Easy Apply / Quick Apply features.
         It does NOT bypass paywalls or violate terms of service. You must provide your credentials below.
         Always review applications before batch-applying.
     </div>
     """, unsafe_allow_html=True)
 
     # Configuration
-    with st.expander("âš™ï¸ Credentials & Configuration", expanded=not playwright_ok):
+    with st.expander("⚙️ Credentials & Configuration", expanded=not playwright_ok):
         cfg_col1, cfg_col2 = st.columns(2)
 
         with cfg_col1:
-            st.markdown("**ðŸ”µ LinkedIn**")
+            st.markdown("**🔵 LinkedIn**")
             li_email = st.text_input("LinkedIn Email", key="li_email",
                                       value=os.getenv("LINKEDIN_EMAIL", ""),
                                       placeholder="your@email.com")
             li_pass  = st.text_input("LinkedIn Password", type="password", key="li_pass",
                                       value=os.getenv("LINKEDIN_PASSWORD", ""),
-                                      placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢")
+                                      placeholder="••••••••")
 
         with cfg_col2:
-            st.markdown("**ðŸŸ¡ Indeed**")
+            st.markdown("**🟡 Indeed**")
             in_email = st.text_input("Indeed Email", key="in_email",
                                       value=os.getenv("INDEED_EMAIL", ""),
                                       placeholder="your@email.com")
             in_pass  = st.text_input("Indeed Password", type="password", key="in_pass",
                                       value=os.getenv("INDEED_PASSWORD", ""),
-                                      placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢")
+                                      placeholder="••••••••")
 
-        st.markdown("**ðŸ‘¤ Personal Info** (for form auto-fill)")
+        st.markdown("**👤 Personal Info** (for form auto-fill)")
         pi_col1, pi_col2, pi_col3, pi_col4 = st.columns(4)
         first_name = pi_col1.text_input("First Name", value=os.getenv("FIRST_NAME", ""), key="first_name_input")
         last_name  = pi_col2.text_input("Last Name", value=os.getenv("LAST_NAME", ""), key="last_name_input")
@@ -1440,18 +1463,19 @@ with tab5:
         headless = st.checkbox("Run headless (no browser window)", value=True)
 
         # Resume file for upload
-        st.markdown("**ðŸ“„ Resume File for Upload** (for file-picker fields)")
+        st.markdown("**📄 Resume File for Upload** (for file-picker fields)")
         auto_resume = st.file_uploader("Upload your resume (PDF for auto-apply forms)", type=["pdf"], key="auto_resume")
         resume_path = ""
         if auto_resume:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(auto_resume.read())
-                resume_path = tmp.name
-            st.success(f"âœ… Resume saved: {Path(resume_path).name}")
+            _apply_dir = Path(tempfile.gettempdir()) / "gamehire"
+            _apply_dir.mkdir(exist_ok=True)
+            resume_path = str(_apply_dir / "auto_apply_resume.pdf")  # overwritten each time, never accumulates
+            Path(resume_path).write_bytes(auto_resume.getvalue())
+            st.success(f"✅ Resume ready: {auto_resume.name}")
 
     # What to apply to
     st.markdown("---")
-    st.markdown("**ðŸ“‹ Applications Queue**")
+    st.markdown("**📋 Applications Queue**")
 
     selected_from_search = list(st.session_state.selected_jobs)
     results_map = {r["url"]: r for r in st.session_state.get("job_results", [])}
@@ -1496,9 +1520,9 @@ with tab5:
         st.markdown(f"**{len(queue_jobs)} job(s) in queue:**")
         for job in queue_jobs[:10]:
             st.markdown(
-                f'<div class="job-card"><div class="job-title">{job["role"]}</div>'
-                f'<div class="job-company">{job["company"]}</div>'
-                f'<div class="job-meta"><a href="{job["url"]}" target="_blank" style="color:var(--text-muted);font-size:0.72rem">{job["url"][:70]}...</a></div></div>',
+                f'<div class="job-card"><div class="job-title">{_esc(job["role"])}</div>'
+                f'<div class="job-company">{_esc(job["company"])}</div>'
+                f'<div class="job-meta"><a href="{_safe_url(job["url"])}" target="_blank" rel="noopener noreferrer" style="color:var(--text-muted);font-size:0.72rem">{_esc(job["url"][:70])}...</a></div></div>',
                 unsafe_allow_html=True
             )
         if len(queue_jobs) > 10:
@@ -1512,7 +1536,7 @@ with tab5:
 
     with apply_col1:
         if st.button(
-            f"ðŸš€ Auto-Apply to {len(queue_jobs)} Job(s)" if queue_jobs else "ðŸš€ Auto-Apply",
+            f"🚀 Auto-Apply to {len(queue_jobs)} Job(s)" if queue_jobs else "🚀 Auto-Apply",
             type="primary",
             use_container_width=True,
             disabled=not queue_jobs or not playwright_ok,
@@ -1547,7 +1571,7 @@ with tab5:
                     apply_log.append(msg)
                     progress_placeholder.markdown(f"**{msg}**")
 
-                progress_placeholder.markdown("**ðŸš€ Starting auto-apply...**")
+                progress_placeholder.markdown("**🚀 Starting auto-apply...**")
 
                 results_list = batch_apply(queue_jobs, config, progress_cb, delay_between=2.0)
                 st.session_state.apply_log = results_list
@@ -1558,31 +1582,31 @@ with tab5:
                 progress_placeholder.empty()
 
                 if successes > 0:
-                    st.success(f"âœ… Applied to {successes}/{len(results_list)} jobs!")
+                    st.success(f"✅ Applied to {successes}/{len(results_list)} jobs!")
                 if failures > 0:
-                    st.warning(f"âš ï¸ {failures} application(s) could not be automated — added to tracker as 'Saved' for manual follow-up.")
+                    st.warning(f"⚠️ {failures} application(s) could not be automated — added to tracker as 'Saved' for manual follow-up.")
 
     with apply_col2:
         if st.session_state.get("apply_log"):
-            st.markdown("**ðŸ“‹ Last Apply Run Results:**")
+            st.markdown("**📋 Last Apply Run Results:**")
             for res in st.session_state.apply_log:
-                icon  = "âœ…" if res.success else "âŒ"
+                icon  = "✅" if res.success else "❌"
                 color = "var(--neon-green)" if res.success else "var(--neon-pink)"
                 st.markdown(
                     f'<div style="border-left:3px solid {color};padding:6px 12px;margin:4px 0;border-radius:0 var(--radius-sm) var(--radius-sm) 0;background:rgba(255,255,255,0.02);font-size:0.82rem">'
-                    f'{icon} <strong style="color:{color}">{res.role}</strong> @ {res.company}<br>'
-                    f'<span style="color:var(--text-muted)">{res.message}</span></div>',
+                    f'{icon} <strong style="color:{color}">{_esc(res.role)}</strong> @ {_esc(res.company)}<br>'
+                    f'<span style="color:var(--text-muted)">{_esc(res.message)}</span></div>',
                     unsafe_allow_html=True
                 )
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 #  TAB 6 — Interview Prep
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 with tab6:
     st.markdown("""
     <div class="section-header">
-        <div class="section-icon" style="background:linear-gradient(135deg,rgba(155,93,229,0.2),rgba(0,207,255,0.2))">ðŸŽ™ï¸</div>
+        <div class="section-icon" style="background:linear-gradient(135deg,rgba(155,93,229,0.2),rgba(0,207,255,0.2))">🎙️</div>
         <div>
             <div class="section-title">Interview Prep</div>
             <div class="section-subtitle">AI-generated questions, STAR feedback & curveball prep</div>
@@ -1590,11 +1614,11 @@ with tab6:
     </div>
     """, unsafe_allow_html=True)
 
-    if st.button("ðŸŽ™ï¸ Generate Interview Questions & Strategy", type="primary"):
+    if st.button("🎙️ Generate Interview Questions & Strategy", type="primary"):
         if not st.session_state.resume_text or not st.session_state.jd_text:
             st.warning("Add a resume and job description in Tab 1 first.")
         else:
-            with st.spinner("ðŸ¤” Thinking like a hiring manager..."):
+            with st.spinner("🤔 Thinking like a hiring manager..."):
                 try:
                     result = ai.generate_interview_questions(
                         st.session_state.resume_text, st.session_state.jd_text)
@@ -1608,7 +1632,7 @@ with tab6:
     st.markdown("---")
     st.markdown("""
     <div style="font-size:0.9rem;font-weight:700;color:var(--text-primary);margin-bottom:0.6rem">
-        ðŸ’¬ Practice Answer Coaching
+        💬 Practice Answer Coaching
     </div>
     """, unsafe_allow_html=True)
 
@@ -1617,7 +1641,7 @@ with tab6:
     a_practice = st.text_area("Your answer", height=130,
                                placeholder="Write your answer here — I'll give you STAR feedback...")
 
-    if st.button("ðŸŽ¯ Get Coaching Feedback"):
+    if st.button("🎯 Get Coaching Feedback"):
         if not q_practice or not a_practice:
             st.warning("Enter a question and your answer.")
         else:
@@ -1630,13 +1654,13 @@ with tab6:
                     st.error(str(e))
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 #  TAB 7 — Tracker
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
 with tab7:
     st.markdown("""
     <div class="section-header">
-        <div class="section-icon" style="background:linear-gradient(135deg,rgba(67,233,123,0.2),rgba(0,207,255,0.2))">ðŸ“Š</div>
+        <div class="section-icon" style="background:linear-gradient(135deg,rgba(67,233,123,0.2),rgba(0,207,255,0.2))">📊</div>
         <div>
             <div class="section-title">Application Tracker</div>
             <div class="section-subtitle">Track every application · status pipeline · notes · auto-apply log</div>
@@ -1671,7 +1695,7 @@ with tab7:
     """, unsafe_allow_html=True)
 
     # Manual add
-    with st.expander("âž• Add Application Manually"):
+    with st.expander("➕ Add Application Manually"):
         m1, m2, m3, m4 = st.columns([2, 2, 3, 1])
         mc = m1.text_input("Company", key="manual_company")
         mr = m2.text_input("Role",    key="manual_role")
@@ -1680,7 +1704,7 @@ with tab7:
         if m4.button("Add", use_container_width=True):
             if mc and mr:
                 tracker.add_application(mc, mr, mu, notes=mn)
-                st.success("âœ… Added!")
+                st.success("✅ Added!")
                 st.rerun()
             else:
                 st.warning("Company and Role are required.")
@@ -1709,9 +1733,9 @@ with tab7:
     if not apps:
         st.markdown("""
         <div style="text-align:center;padding:3rem;color:var(--text-muted)">
-            <div style="font-size:3rem;margin-bottom:0.5rem">ðŸ“‹</div>
+            <div style="font-size:3rem;margin-bottom:0.5rem">📋</div>
             <div style="font-size:1rem;font-weight:600">No applications tracked yet</div>
-            <div style="font-size:0.8rem;margin-top:0.3rem">Add applications manually above or use Job Search â†’ Auto-Apply</div>
+            <div style="font-size:0.8rem;margin-top:0.3rem">Add applications manually above or use Job Search → Auto-Apply</div>
         </div>
         """, unsafe_allow_html=True)
     else:
@@ -1726,16 +1750,16 @@ with tab7:
                 cols = st.columns([3, 2, 2, 2, 1])
 
                 with cols[0]:
-                    auto_badge = ' <span style="font-size:0.65rem;color:var(--neon-gold);background:rgba(255,214,10,0.1);padding:1px 6px;border-radius:4px">ðŸ¤– AUTO</span>' if a.get("auto_applied") else ""
+                    auto_badge = ' <span style="font-size:0.65rem;color:var(--neon-gold);background:rgba(255,214,10,0.1);padding:1px 6px;border-radius:4px">🤖 AUTO</span>' if a.get("auto_applied") else ""
                     st.markdown(
-                        f"**{a['company']}**{auto_badge}  \n"
-                        f'<span style="font-size:0.82rem;color:var(--text-secondary)">{a["role"]}</span>',
+                        f"**{_esc(a['company'])}**{auto_badge}  \n"
+                        f'<span style="font-size:0.82rem;color:var(--text-secondary)">{_esc(a["role"])}</span>',
                         unsafe_allow_html=True
                     )
 
                 with cols[1]:
                     if a.get("url"):
-                        st.markdown(f'<a href="{a["url"]}" target="_blank" style="color:var(--neon-cyan);font-size:0.78rem">Open listing â†—</a>', unsafe_allow_html=True)
+                        st.markdown(f'<a href="{_safe_url(a["url"])}" target="_blank" rel="noopener noreferrer" style="color:var(--neon-cyan);font-size:0.78rem">Open listing ↗</a>', unsafe_allow_html=True)
                     st.markdown(f'<span style="font-size:0.72rem;color:var(--text-muted)">{a.get("date_applied","")}</span>', unsafe_allow_html=True)
 
                 with cols[2]:
@@ -1763,7 +1787,7 @@ with tab7:
                         tracker.update_notes(a["id"], notes_val)
 
                 with cols[4]:
-                    if st.button("ðŸ—‘", key=f"del_{a['id']}", use_container_width=True):
+                    if st.button("🗑", key=f"del_{a['id']}", use_container_width=True):
                         tracker.delete_application(a["id"])
                         st.rerun()
 
@@ -1777,7 +1801,7 @@ with tab7:
         writer.writeheader()
         writer.writerows(apps)
         st.download_button(
-            "â¬‡ï¸ Export All as CSV",
+            "⬇️ Export All as CSV",
             output.getvalue(),
             file_name="job_applications.csv",
             mime="text/csv",

@@ -39,6 +39,21 @@ QUANT_PATTERN = re.compile(r"(\$\s?\d|\d+%|\d+x\b|\d+\+|\d+k\b|\d+m\b)", re.IGNO
 EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 PHONE_PATTERN = re.compile(r"(\+?\d[\d\-\s()]{8,}\d)")
 PRONOUN_PATTERN = re.compile(r"\bI\b|\bmy\b|\bme\b", re.IGNORECASE)
+_YEAR = r"\b(?:19|20)\d{2}\b"
+
+
+def find_phone(text: str) -> str | None:
+    """Return the first plausible phone number. PHONE_PATTERN alone also matches
+    date ranges like '2018 - 2022', so validate digit count and reject dates."""
+    for m in PHONE_PATTERN.finditer(text):
+        s = m.group(0).strip()
+        digits = re.sub(r"\D", "", s)
+        if not 10 <= len(digits) <= 15:
+            continue
+        if len(re.findall(_YEAR, s)) >= 2:
+            continue
+        return s
+    return None
 
 
 def _tokenize(text: str) -> list[str]:
@@ -62,7 +77,7 @@ def _general_analysis(resume_text: str) -> dict:
     length_ok = 350 <= word_count <= 900
 
     has_email = bool(EMAIL_PATTERN.search(resume_text))
-    has_phone = bool(PHONE_PATTERN.search(resume_text))
+    has_phone = find_phone(resume_text) is not None
 
     lowered = resume_text.lower()
     found_headers = [h for h in SECTION_HEADERS if h in lowered]
@@ -71,8 +86,8 @@ def _general_analysis(resume_text: str) -> dict:
     has_bullets = len(bullets) >= 3
     if bullets:
         action_verb_hits = sum(
-            1 for b in bullets if b.split()[0].lower().rstrip(",.") in ACTION_VERBS
-            if b.split()
+            1 for b in bullets if b.split()
+            if b.split()[0].lower().rstrip(",.") in ACTION_VERBS
         )
         strong_action_verbs = (action_verb_hits / len(bullets)) >= 0.5
     else:
