@@ -14,7 +14,7 @@
 
 * GitHub: [@sahilrafiq](https://github.com/sahilrafiq)
 * LinkedIn: [sahil-rafiq](https://www.linkedin.com/in/sahil-rafiq/)
-
+* Portfolio: [sahil_rafiq](https://sahilrafiq.vercel.app/)
 ---
 
 ## 🎯 What Is GameHire?
